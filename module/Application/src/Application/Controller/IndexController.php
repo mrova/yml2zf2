@@ -43,11 +43,200 @@ class IndexController extends AbstractActionController {
 
         foreach ($data as $module => $config) {
             $this->_dirStructure($module, array_keys($config['controllers']));
+            $this->_config($module, $config['controllers']);
             $this->_controllers($config['controllers'], $module);
             $this->_views($config['controllers'], $module);
         }
 
         return 'done!';
+    }
+
+    /**
+     * Generate module config
+     * 
+     * @param array $config
+     * @param string $controllers
+     */
+    protected function _config($module, array $controllers) {
+        $router = $this->_router($module, $controllers);
+        print_r($router);
+        die;
+    }
+
+    /**
+     * Extract router from configuration
+     * 
+     * @param array $module config for given module
+     * @param string $controllers
+     */
+    protected function _router($module, array $controllers) {
+        return [
+            'router' => [
+                'routes' => $this->_prepareRouter(
+                        $this->_extractRouter($controllers), $module, null
+                )
+            ]
+        ];
+    }
+
+    /**
+     * Prepare router array recursively 
+     * 
+     * @param array $routes
+     * @param string $module
+     * @param string|null $parent
+     * @return null|array
+     */
+    protected function _prepareRouter(array $routes, $module, $parent = null) {
+        $result = [];
+        foreach ($routes as $routeName => $route) {
+            $routeParent = isset($route['parent']) ? $route['parent'] : null;
+            if ($routeParent === $parent) {
+                $newRoute = [
+                    'type' => $route['type'],
+                    'options' => $this->_getRouteOptions($route, $module)
+                ];
+                if ($childRoutes = $this->_prepareRouter($routes, $module, $routeName)) {
+                    $newRoute['may_terminate'] = true;
+                    $newRoute['child_routes'] = $childRoutes;
+                }
+                $result[$this->_getRouteKey($routeName)] = $newRoute;
+            }
+        }
+        if (count($result) > 0) {
+            return $result;
+        }
+        return null;
+    }
+
+    /**
+     * Extract router from confuration
+     * 
+     * @param array $controllers
+     * @return array
+     */
+    protected function _extractRouter(array $controllers) {
+        $router = [];
+        foreach ($controllers as $controller => $actions) {
+            foreach ($actions as $action => $config) {
+                $route = $config['router'];
+                $route['controller'] = $controller;
+                $route['action'] = $action;
+                $router[$controller . '/' . $action] = $route;
+            }
+        }
+
+        return $router;
+    }
+
+    /**
+     * Get route options
+     * 
+     * @param array $route
+     * @param string $module
+     * @return array
+     */
+    protected function _getRouteOptions(array $route, $module) {
+        $controller = $route['controller'];
+        $action = $route['action'];
+        $type = $route['type'];
+        $routeWithParamsType = $route['route'];
+
+        return [
+            'route' => $this->_getRouteWithoutParamsType($routeWithParamsType),
+            'defaults' => $this->_getRouteDefaults(
+                    $module, $controller, $action
+            ),
+            'constraints' => $this->_getConstraints($routeWithParamsType, $type)
+        ];
+    }
+
+    /**
+     * Get route key
+     * 
+     * @param string $routeName
+     * @return string
+     */
+    protected function _getRouteKey($routeName) {
+        return implode(
+                '', \array_map(function($v) {
+                    return ucfirst($v);
+                }, explode('/', $routeName)
+                )
+        );
+    }
+
+    /**
+     * Get contraints for given route
+     * 
+     * @param string $routeWithParamsType
+     * @param string $routeType
+     * @return array
+     */
+    protected function _getConstraints($routeWithParamsType, $routeType) {
+        $constraints = [];
+        if ($routeType === 'Segment' /* #TODO: || isSegment($route) */) {
+            $regexp = '/(?::([a-zA-Z0-9]+)(?:\|(int|text))?)+/s';
+            if (preg_match_all($regexp, $routeWithParamsType, $match)) {
+                foreach ($match[1] as $key => $param) {
+                    #TODO:  maybe exception would be better 
+                    #       instead of setting default value?
+                    $constraintType = 'text';
+                    if (isset($match[2][$key]) && !empty($match[2][$key])) {
+                        $constraintType = $match[2][$key];
+                    }
+                    $constraints[$param] = $this->_getConstraintByCode($constraintType);
+                }
+            }
+        }
+
+        return $constraints;
+    }
+
+    /**
+     * Get constraint by code
+     * 
+     * @param string $type
+     * @return string
+     * @throws \InvalidArgumentException
+     */
+    protected function _getConstraintByCode($type) {
+        switch ($type) {
+            case 'text':
+                return '[a-zA-Z0-9-_]+';
+            case 'int':
+                return '[0-9]+';
+            default:
+                $msg = 'Constraint type "' . $type . '" is not suported';
+                throw new \InvalidArgumentException($msg);
+        }
+    }
+
+    /**
+     * Removes params type from route
+     * 
+     * @param string $routeWithParams
+     * @return string
+     */
+    protected function _getRouteWithoutParamsType($routeWithParams) {
+        return preg_replace('/\|(text|int)/', '', $routeWithParams);
+    }
+
+    /**
+     * Get route defaults
+     * 
+     * @param string $module
+     * @param string $controller
+     * @param string $action
+     * @return array
+     */
+    protected function _getRouteDefaults($module, $controller, $action) {
+        return [
+            'controller' => $this->_getModuleName($module)
+            . '\Controller\\'
+            . $this->_getControllerName($controller),
+            'action' => $this->_getActionName($action)
+        ];
     }
 
     /**
@@ -59,14 +248,13 @@ class IndexController extends AbstractActionController {
     protected function _controllers(array $controllers, $module) {
         foreach ($controllers as $controller => $config) {
             $class = \Zend\Code\Generator\ClassGenerator::fromArray([
-                'name' => $this->_getControllerName($controller) . 'Controller',
-                'namespacename' => $this->_getModuleName($module) . '\Controller',
-                'methods' => array_map(
-                    function($val) {
-                        return $val . 'Action';
-                    }, 
-                    array_keys($config)
-                )
+                        'name' => $this->_getControllerName($controller) . 'Controller',
+                        'namespacename' => $this->_getModuleName($module) . '\Controller',
+                        'methods' => array_map(
+                                function($val) {
+                            return $val . 'Action';
+                        }, array_keys($config)
+                        )
             ]);
 
             $method = new \Zend\Code\Generator\MethodGenerator();
@@ -92,10 +280,9 @@ class IndexController extends AbstractActionController {
         foreach ($controllers as $controller => $config) {
             foreach (array_keys($config) as $action) {
                 file_put_contents(
-                    $this->_getViewPath($module, $controller) . '/'
+                        $this->_getViewPath($module, $controller) . '/'
                         . $this->_getViewName($action)
-                        . '.phtml', 
-                    ''
+                        . '.phtml', ''
                 );
             }
         }
@@ -114,7 +301,7 @@ class IndexController extends AbstractActionController {
             return;
         }
         mkdir($modulePath);
-        mkdir($modulePath . '/config');
+        mkdir($this->_getConfigPath($module));
         mkdir($modulePath . '/src');
         mkdir($modulePath . '/src/' . $module);
         mkdir($this->_getControllerPath($module));
@@ -132,6 +319,16 @@ class IndexController extends AbstractActionController {
         foreach ($controllers as $controller) {
             mkdir($this->_getViewPath($module, $controller));
         }
+    }
+
+    /**
+     * Returns path to config
+     * 
+     * @param string $module
+     * @return string
+     */
+    protected function _getConfigPath($module) {
+        return $this->_getModulePath($module) . '/config';
     }
 
     /**
@@ -192,7 +389,7 @@ class IndexController extends AbstractActionController {
      */
     protected function _getViewPath($module, $controller = null) {
         return $this->_getModulePath($module) . '/view/' . strtolower($module)
-            . ($controller ? '/' . strtolower($controller) : '');
+                . ($controller ? '/' . strtolower($controller) : '');
     }
 
     /**
