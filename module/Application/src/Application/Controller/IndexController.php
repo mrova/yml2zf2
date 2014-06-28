@@ -107,7 +107,7 @@ class IndexController extends AbstractActionController {
         $result = [];
         foreach (array_keys($controllers) as $controller) {
             $name = $this->_getControllerFullName($module, $controller);
-            $result[$name] = $name;
+            $result[$name] = $name . 'Controller';
         }
         return [
             'controllers' => array(
