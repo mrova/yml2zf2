@@ -61,7 +61,7 @@ class IndexController extends AbstractActionController {
      */
     protected function _module($module) {
         $class = $this->_getDefaultModuleClass($module);
-        
+
         $file = $this->_newFile();
         $file->setClass($class);
 
@@ -70,33 +70,48 @@ class IndexController extends AbstractActionController {
                 . 'Module.php', $file->generate()
         );
     }
-    
+
     /**
      * Get default module class
      * 
-     * @param type $module
+     * @param string $module
      * @return \Zend\Code\Generator\ClassGenerator
      */
     protected function _getDefaultModuleClass($module) {
         $class = \Zend\Code\Generator\ClassGenerator::fromReflection(new \Zend\Code\Reflection\ClassReflection('\Application\Data\Module'));
         $class->setNamespaceName($this->_getModuleName($module));
-        
+
         return $class;
     }
-    
+
+    /**
+     * Get default module class
+     * 
+     * @param string $module
+     * @return \Zend\Code\Generator\ClassGenerator
+     */
+    protected function _getDefaultViewHelperUrlClass($module) {
+        $class = \Zend\Code\Generator\ClassGenerator::fromReflection(new \Zend\Code\Reflection\ClassReflection('\Application\Data\ViewHelperUrl'));
+        $class->setNamespaceName($this->_getModuleName($module) . '\View\Helper');
+        $class->setExtendedClass('\Zend\View\Helper\Url');
+
+        return $class;
+    }
+
     /**
      * Generate module config
      * 
-     * @param array $config
+     * @param array $module
      * @param string $controllers
      */
     protected function _config($module, array $controllers) {
         $router = $this->_router($module, $controllers);
+        $viewHelpers = $this->_configViewHelpers($module, $controllers);
         $controllers = $this->_configControllers($module, $controllers);
         $viewManager = $this->_configViewManager($module);
         $file = $this->_newFile();
 
-        $body = 'return ' . new ValueGenerator($router + $controllers + $viewManager) . ';';
+        $body = 'return ' . new ValueGenerator($router + $controllers + $viewManager + $viewHelpers) . ';';
         $file->setBody($body);
 
         file_put_contents(
@@ -104,7 +119,110 @@ class IndexController extends AbstractActionController {
                 . 'module.config.php', $file->generate()
         );
     }
-    
+
+    /**
+     * View Helpers config
+     * 
+     * @param string $module
+     * @param array $controllers
+     * @return array
+     */
+    protected function _configViewHelpers($module, array $controllers) {
+        $viewHelpers = $this->_extractViewHelperInfo(
+                $this->_extractRouter($controllers)
+        );
+
+        $result = [];
+        foreach ($viewHelpers as $routeName => $params) {
+            $helperName = $routeName . 'Url';
+            $this->_createUrlViewHelper($helperName, $routeName, $params, $module);
+            $result[lcfirst($helperName)] = $this->_getModuleName($module) . '\View\Helper\\' . $helperName;
+        }
+
+        return [
+            'view_helpers' => array(
+                'invokables' => $result
+            )
+        ];
+    }
+
+    /**
+     * 
+     * @param string $helperName
+     * @param string $routeName
+     * @param array $params
+     * @param string $module
+     */
+    protected function _createUrlViewHelper($helperName, $routeName, array $params, $module) {
+        $class = $this->_getDefaultViewHelperUrlClass($module);
+        $class->setName($helperName);
+        $method = $class->getMethod('__invoke');
+        
+        $args = [];
+        if (!empty($params)) {
+            foreach ($params as $param) {
+                $parameter = new \Zend\Code\Generator\ParameterGenerator();
+                $parameter->setName($param);
+                $method->setParameter($parameter);
+                $q = new \Zend\Code\Generator\ParameterGenerator($param);
+                $args[] = "        '". $param . "'" . ' => ' . $q->generate();
+            }
+            
+            $parameter = new \Zend\Code\Generator\ParameterGenerator();
+            $parameter->setName('options');
+            $parameter->setDefaultValue(new \Zend\Code\Generator\ValueGenerator(array()));
+            $method->setParameter($parameter);
+            
+            $parameter = new \Zend\Code\Generator\ParameterGenerator();
+            $parameter->setName('reuseMatchedParams');
+            $parameter->setDefaultValue(false);
+            $method->setParameter($parameter);
+        }
+        
+        $body = 'return parent::__invoke(' . PHP_EOL
+                . '    \'' . $routeName . '\',' . PHP_EOL
+                . '    array(' . PHP_EOL
+                . implode(',' . PHP_EOL, $args) . PHP_EOL . '    ),' . PHP_EOL
+                . '    $options,' . PHP_EOL
+                . '    $reuseMatchedParams' . PHP_EOL
+                . ');';
+        $method->setBody($body);
+        
+        $file = $this->_newFile();
+        $file->setClass($class);
+
+        file_put_contents(
+            $this->_getViewHelperPath($module) . '/' . $helperName . '.php', 
+            $file->generate()
+        );
+    }
+
+    /**
+     * 
+     * @param array $routes
+     * @param string $parent
+     * @return array
+     */
+    protected function _extractViewHelperInfo(array $routes, $parent = null) {
+        $result = [];
+        foreach ($routes as $routeName => $route) {
+            $name = $this->_getRouteKey($routeName);
+            $constraints = array_keys($this->_getConstraints($route['route'], $route['type']));
+
+            if (isset($route['parent'])) {
+                $constraints = array_merge($constraints, $this->_extractViewHelperInfo($routes, $route['parent']));
+            }
+
+            if ($routeName === $parent) {
+                return $constraints;
+            }
+
+            $result[$name] = $constraints;
+        }
+
+        return $result;
+    }
+
     /**
      * Controllers config
      * 
@@ -124,7 +242,7 @@ class IndexController extends AbstractActionController {
             )
         ];
     }
-    
+
     /**
      * View Manager config
      * 
@@ -420,6 +538,16 @@ class IndexController extends AbstractActionController {
     }
 
     /**
+     * Returns path to view helpers
+     * 
+     * @param string $module
+     * @return string
+     */
+    protected function _getViewHelperPath($module) {
+        return $this->_getModulePath($module) . '/src/' . $module . '/View/Helper';
+    }
+
+    /**
      * Returns module name 
      * 
      * @param string $module
@@ -490,7 +618,7 @@ class IndexController extends AbstractActionController {
     protected function _getModulePath($module) {
         return self::OUTPUT_PATH . $this->_getModuleName($module);
     }
-    
+
     /**
      * New file
      * 
@@ -499,10 +627,10 @@ class IndexController extends AbstractActionController {
     protected function _newFile() {
         $file = new \Zend\Code\Generator\FileGenerator();
         $file->setDocBlock($this->_getFileDocBlock());
-        
+
         return $file;
     }
-            
+
     /**
      * Returns file DocBlock from sample file
      * 
@@ -511,7 +639,7 @@ class IndexController extends AbstractActionController {
     protected function _getFileDocBlock() {
         require_once __DIR__ . '/../Data/FileDocBlock.php';
         $docBlockFile = \Zend\Code\Generator\FileGenerator::fromReflection(new \Zend\Code\Reflection\FileReflection(__DIR__ . '/../Data/FileDocBlock.php'));
-        
+
         return $docBlockFile->getDocBlock();
     }
 
