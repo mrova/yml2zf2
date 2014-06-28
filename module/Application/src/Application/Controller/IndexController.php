@@ -305,7 +305,7 @@ class IndexController extends AbstractActionController {
             file_put_contents(
                     $this->_getControllerPath($module) . '/'
                     . $this->_getControllerName($controller)
-                    . 'Controller', $file->generate()
+                    . 'Controller.php', $file->generate()
             );
         }
     }
