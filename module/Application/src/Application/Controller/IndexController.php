@@ -13,6 +13,7 @@ namespace Application\Controller;
 use Zend\Mvc\Controller\AbstractActionController;
 use Zend\View\Model\ViewModel;
 use Zend\Console\Request as ConsoleRequest;
+use \Zend\Code\Generator\ValueGenerator;
 
 class IndexController extends AbstractActionController {
 
@@ -92,9 +93,10 @@ class IndexController extends AbstractActionController {
     protected function _config($module, array $controllers) {
         $router = $this->_router($module, $controllers);
         $controllers = $this->_configControllers($module, $controllers);
+        $viewManager = $this->_configViewManager($module);
         $file = $this->_newFile();
 
-        $body = 'return ' . new \Zend\Code\Generator\ValueGenerator($router + $controllers) . ';';
+        $body = 'return ' . new ValueGenerator($router + $controllers + $viewManager) . ';';
         $file->setBody($body);
 
         file_put_contents(
@@ -103,6 +105,13 @@ class IndexController extends AbstractActionController {
         );
     }
     
+    /**
+     * Controllers config
+     * 
+     * @param string $module
+     * @param array $controllers
+     * @return array
+     */
     protected function _configControllers($module, array $controllers) {
         $result = [];
         foreach (array_keys($controllers) as $controller) {
@@ -115,7 +124,22 @@ class IndexController extends AbstractActionController {
             )
         ];
     }
-            
+    
+    /**
+     * View Manager config
+     * 
+     * @param string $module
+     * @return array
+     */
+    protected function _configViewManager($module) {
+        return [
+            'view_manager' => array(
+                'template_path_stack' => array(
+                    './module/' . $module . '/view',
+                ),
+            ),
+        ];
+    }
 
     /**
      * Extract router from configuration
