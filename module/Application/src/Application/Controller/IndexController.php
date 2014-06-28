@@ -91,9 +91,10 @@ class IndexController extends AbstractActionController {
      */
     protected function _config($module, array $controllers) {
         $router = $this->_router($module, $controllers);
+        $controllers = $this->_configControllers($module, $controllers);
         $file = $this->_newFile();
 
-        $body = 'return ' . new \Zend\Code\Generator\ValueGenerator($router) . ';';
+        $body = 'return ' . new \Zend\Code\Generator\ValueGenerator($router + $controllers) . ';';
         $file->setBody($body);
 
         file_put_contents(
@@ -101,6 +102,20 @@ class IndexController extends AbstractActionController {
                 . 'module.config.php', $file->generate()
         );
     }
+    
+    protected function _configControllers($module, array $controllers) {
+        $result = [];
+        foreach (array_keys($controllers) as $controller) {
+            $name = $this->_getControllerFullName($module, $controller);
+            $result[$name] = $name;
+        }
+        return [
+            'controllers' => array(
+                'invokables' => $result
+            )
+        ];
+    }
+            
 
     /**
      * Extract router from configuration
@@ -274,9 +289,7 @@ class IndexController extends AbstractActionController {
      */
     protected function _getRouteDefaults($module, $controller, $action) {
         return [
-            'controller' => $this->_getModuleName($module)
-            . '\Controller\\'
-            . $this->_getControllerName($controller),
+            'controller' => $this->_getControllerFullName($module, $controller),
             'action' => $this->_getActionName($action)
         ];
     }
@@ -292,6 +305,7 @@ class IndexController extends AbstractActionController {
             $class = \Zend\Code\Generator\ClassGenerator::fromArray([
                         'name' => $this->_getControllerName($controller) . 'Controller',
                         'namespacename' => $this->_getModuleName($module) . '\Controller',
+                        'extendedclass' => '\Zend\Mvc\Controller\AbstractActionController',
                         'methods' => array_map(
                                 function($val) {
                             return $val . 'Action';
@@ -399,6 +413,17 @@ class IndexController extends AbstractActionController {
      */
     protected function _getControllerName($controller) {
         return ucfirst($controller);
+    }
+
+    /**
+     * Returns full controller name 
+     * 
+     * @param string $module
+     * @param string $controller
+     * @return string
+     */
+    protected function _getControllerFullName($module, $controller) {
+        return $this->_getModuleName($module) . '\Controller\\' . $this->_getControllerName($controller);
     }
 
     /**
