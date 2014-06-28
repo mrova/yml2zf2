@@ -34,6 +34,7 @@ class IndexController extends AbstractActionController {
         $reader = new \Zend\Config\Reader\Yaml();
         $data = $reader->fromFile($filename);
 
+        $module = '';
         if ($module = $request->getParam('module')) {
             if (!isset($data[$module])) {
                 return 'No configuration for module ' . $module;
@@ -43,6 +44,7 @@ class IndexController extends AbstractActionController {
 
         foreach ($data as $module => $config) {
             $this->_dirStructure($module, array_keys($config['controllers']));
+            $this->_module($module);
             $this->_config($module, $config['controllers']);
             $this->_controllers($config['controllers'], $module);
             $this->_views($config['controllers'], $module);
@@ -52,6 +54,36 @@ class IndexController extends AbstractActionController {
     }
 
     /**
+     * Generate Module.php
+     * 
+     * @param type $module
+     */
+    protected function _module($module) {
+        $class = $this->_getDefaultModuleClass($module);
+        
+        $file = $this->_newFile();
+        $file->setClass($class);
+
+        file_put_contents(
+                $this->_getModulePath($module) . '/'
+                . 'Module.php', $file->generate()
+        );
+    }
+    
+    /**
+     * Get default module class
+     * 
+     * @param type $module
+     * @return \Zend\Code\Generator\ClassGenerator
+     */
+    protected function _getDefaultModuleClass($module) {
+        $class = \Zend\Code\Generator\ClassGenerator::fromReflection(new \Zend\Code\Reflection\ClassReflection('\Application\Data\Module'));
+        $class->setNamespaceName($this->_getModuleName($module));
+        
+        return $class;
+    }
+    
+    /**
      * Generate module config
      * 
      * @param array $config
@@ -59,8 +91,15 @@ class IndexController extends AbstractActionController {
      */
     protected function _config($module, array $controllers) {
         $router = $this->_router($module, $controllers);
-        print_r($router);
-        die;
+        $file = $this->_newFile();
+
+        $body = 'return ' . new \Zend\Code\Generator\ValueGenerator($router) . ';';
+        $file->setBody($body);
+
+        file_put_contents(
+                $this->_getConfigPath($module) . '/'
+                . 'module.config.php', $file->generate()
+        );
     }
 
     /**
@@ -119,10 +158,12 @@ class IndexController extends AbstractActionController {
         $router = [];
         foreach ($controllers as $controller => $actions) {
             foreach ($actions as $action => $config) {
-                $route = $config['router'];
-                $route['controller'] = $controller;
-                $route['action'] = $action;
-                $router[$controller . '/' . $action] = $route;
+                if (isset($config['router'])) {
+                    $route = $config['router'];
+                    $route['controller'] = $controller;
+                    $route['action'] = $action;
+                    $router[$controller . '/' . $action] = $route;
+                }
             }
         }
 
@@ -177,6 +218,7 @@ class IndexController extends AbstractActionController {
         $constraints = [];
         if ($routeType === 'Segment' /* #TODO: || isSegment($route) */) {
             $regexp = '/(?::([a-zA-Z0-9]+)(?:\|(int|text))?)+/s';
+            $match = [];
             if (preg_match_all($regexp, $routeWithParamsType, $match)) {
                 foreach ($match[1] as $key => $param) {
                     #TODO:  maybe exception would be better 
@@ -243,7 +285,7 @@ class IndexController extends AbstractActionController {
      * Generate controllers
      * 
      * @param array $controllers
-     * @param string $controllers
+     * @param string $module
      */
     protected function _controllers(array $controllers, $module) {
         foreach ($controllers as $controller => $config) {
@@ -257,9 +299,7 @@ class IndexController extends AbstractActionController {
                         )
             ]);
 
-            $method = new \Zend\Code\Generator\MethodGenerator();
-
-            $file = new \Zend\Code\Generator\FileGenerator();
+            $file = $this->_newFile();
             $file->setClass($class);
 
             file_put_contents(
@@ -274,7 +314,7 @@ class IndexController extends AbstractActionController {
      * Generate empty view files
      * 
      * @param array $controllers
-     * @param string $controllers
+     * @param string $module
      */
     protected function _views(array $controllers, $module) {
         foreach ($controllers as $controller => $config) {
@@ -282,7 +322,7 @@ class IndexController extends AbstractActionController {
                 file_put_contents(
                         $this->_getViewPath($module, $controller) . '/'
                         . $this->_getViewName($action)
-                        . '.phtml', ''
+                        . '.phtml', $config[$action]['template']
                 );
             }
         }
@@ -400,6 +440,30 @@ class IndexController extends AbstractActionController {
      */
     protected function _getModulePath($module) {
         return self::OUTPUT_PATH . $this->_getModuleName($module);
+    }
+    
+    /**
+     * New file
+     * 
+     * @return \Zend\Code\Generator\FileGenerator
+     */
+    protected function _newFile() {
+        $file = new \Zend\Code\Generator\FileGenerator();
+        $file->setDocBlock($this->_getFileDocBlock());
+        
+        return $file;
+    }
+            
+    /**
+     * Returns file DocBlock from sample file
+     * 
+     * @return \Zend\Code\Generator\DocBlockGenerator
+     */
+    protected function _getFileDocBlock() {
+        require_once __DIR__ . '/../Data/FileDocBlock.php';
+        $docBlockFile = \Zend\Code\Generator\FileGenerator::fromReflection(new \Zend\Code\Reflection\FileReflection(__DIR__ . '/../Data/FileDocBlock.php'));
+        
+        return $docBlockFile->getDocBlock();
     }
 
 }
