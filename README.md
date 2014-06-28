@@ -5,8 +5,8 @@ Generate Zend Framework 2 structure, router and more from .yml config
 
 
 Add this to Application/config/module.config.php
+It's make possible to extend the Zend\View\Helper\Url 
 
-It's make possible to extends the Zend\View\Helper\Url 
 ```php
 'view_helpers' => array(
     'initializers' => array(
