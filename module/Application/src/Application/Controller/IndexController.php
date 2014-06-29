@@ -131,11 +131,11 @@ class IndexController extends AbstractActionController {
         $viewHelpers = $this->_extractViewHelperInfo(
                 $this->_extractRouter($controllers)
         );
-
+        
         $result = [];
         foreach ($viewHelpers as $routeName => $params) {
             $helperName = $routeName . 'Url';
-            $this->_createUrlViewHelper($helperName, $routeName, $params, $module);
+            $this->_createUrlViewHelper($helperName, $params['route'], $params['constraints'], $module);
             $result[lcfirst($helperName)] = $this->_getModuleName($module) . '\View\Helper\\' . $helperName;
         }
 
@@ -210,14 +210,26 @@ class IndexController extends AbstractActionController {
             $constraints = array_keys($this->_getConstraints($route['route'], $route['type']));
 
             if (isset($route['parent'])) {
-                $constraints = array_merge($constraints, $this->_extractViewHelperInfo($routes, $route['parent']));
+                $p = $this->_extractViewHelperInfo($routes, $route['parent']);
+                $constraints = array_merge($constraints, $p['constraints']);
+                $parentRouteName = $this->_getRouteKey($p['route']);
+                if (!in_array($parentRouteName, $routeFull)) {
+                    $routeFull[] = $parentRouteName;
+                }
             }
 
             if ($routeName === $parent) {
-                return $constraints;
+                return [
+                    'constraints' => $constraints,
+                    'route' => $routeName
+                ];
             }
 
-            $result[$name] = $constraints;
+            $routeFull[] = $this->_getRouteKey($routeName);
+            $result[$name] = [
+                'constraints' => $constraints,
+                'route' => implode('/', $routeFull)
+            ];
         }
 
         return $result;
@@ -507,7 +519,7 @@ class IndexController extends AbstractActionController {
         mkdir($modulePath . '/src/' . $module . '/Mapper');
         mkdir($modulePath . '/src/' . $module . '/Model');
         mkdir($modulePath . '/src/' . $module . '/Options');
-        mkdir($modulePath . '/src/' . $module . '/Sevice');
+        mkdir($modulePath . '/src/' . $module . '/Service');
         mkdir($modulePath . '/src/' . $module . '/View');
         mkdir($modulePath . '/src/' . $module . '/View/Helper');
         mkdir($modulePath . '/view');
